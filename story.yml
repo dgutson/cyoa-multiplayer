@@ -1,0 +1,23 @@
+---
+participants:
+  - Gali
+  - Zeus
+  - Caleb
+initial-participant: random
+max-depth: 45
+max-options: 3
+plot: |
+  En unas vacaciones, los chicos van a explorar al bosque.
+  En el bosque encuentran una cueva oculta detrás de una piedra.
+  Al entrar, se adentran en un pasillo hacia un laboratorio secreto,
+  y, escondidos, observan unos seres extraños, que no parecían humanos.
+  Todos parecían científicos operando computadoras muy avanzadas.
+  Estos seres en realidad habían alguna vez dominado la Tierra antes que los
+  humanos, pero luego de una guerra antigua, perdieron y tuvieron que mudarse
+  y esconderse debajo de la tierra.
+  Ahora estaban preparando una nueva conquista, y los chicos deben detenerlos,
+  pero para eso deben que entender su lógica, su plan, y luego hackear
+  su computadora central.
+first-question: |
+  Cerca de donde llegan, uno de los seres se aleja de su computadora.
+  Se acercan a ver?
