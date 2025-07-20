@@ -13,7 +13,7 @@ ChatMessages = list[dict[str, Any]]
 
 @dataclass
 class Config:
-    participants: list[Participant] = field(default_factory=list)
+    participants: list[Participant] = field(default_factory=list) # pyright: ignore
     initial_participant_id: int = 0
     plot: str = ''
     max_depth: int = 0
