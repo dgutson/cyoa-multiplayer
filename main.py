@@ -2,14 +2,14 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import os
 import random
-from typing import Final
+from typing import Final, Any
 
 from huggingface_hub import InferenceClient
 import yaml
 
 StoryLine = list[str]
 Participant = str
-ChatMessages = list[dict]
+ChatMessages = list[dict[str, Any]]
 
 @dataclass
 class Config:
@@ -49,7 +49,7 @@ class LlmStoryManager:
         chat_messages = self._story_line_to_chat(story_so_far)
         chat_messages = self._add_chat_message(chat_messages, question)
 
-        completion = self._client.chat.completions.create(
+        completion = self._client.chat.completions.create( # type: ignore
             model = self.MODEL_ID,
             messages = chat_messages
         )
@@ -71,9 +71,14 @@ class StoryTree:
     def __init__(self, starting_participant: int, starting_story: StoryLine) -> None:
         self._root: Final = StoryTree.StoryNode(starting_participant, starting_story)
 
+
 class PlayerInterface(ABC):
     @abstractmethod
     def decide(self, participant: int, context: str, options: list[str]) -> int:
+        pass
+
+    @abstractmethod
+    def go_back(self) -> None:
         pass
 
 class StoryCreator:
@@ -115,24 +120,5 @@ class StoryCreator:
         """
         return StoryLine(preamble)
 
-
-
-
-"""
-completion = client.chat.completions.create(
-    model="HuggingFaceTB/SmolLM3-3B",
-    messages=[
-        {"role": "system", "content": "/no_think"},
-        {
-            "role": "user",
-            "content": "Hagamos una historia de Elige Tu Propia Aventura. Qué nombre elegirías?"
-        },
-        {
-            "role": "user",
-            "content": "De qué se trataría?"
-        }
-    ],
-)
-
-print(completion.choices[0].message.content)
-"""
+    def begin(self) -> None:
+        pass
