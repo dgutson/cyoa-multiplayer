@@ -1,6 +1,7 @@
 #from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 import json
+import logging
 import os
 import random
 import sys
@@ -36,7 +37,7 @@ class LlmStoryManager:
         if not api_key:
             print("HF_TOKEN env var not set.")
             sys.exit(1)
-    
+
         self._client = InferenceClient(
             provider="hf-inference",
             api_key=api_key)
@@ -50,6 +51,7 @@ class LlmStoryManager:
     def _story_line_to_chat(story_line: StoryLine) -> ChatMessages:
         chat_messages = [{"role": "system", "content": "/no_think"}]
         for story_item in story_line:
+            logging.debug(story_item)
             LlmStoryManager._add_chat_message(chat_messages, story_item)
 
         return chat_messages
@@ -58,32 +60,21 @@ class LlmStoryManager:
         chat_messages = self._story_line_to_chat(story_so_far)
         chat_messages = self._add_chat_message(chat_messages, question)
 
-        completion = self._client.chat.completions.create( # type: ignore
+        completion = self._client.chat.completions.create( # pyright: ignore
             model = self.MODEL_ID,
             messages = chat_messages
         )
 
         answer = completion.choices[0].message.content
-
+        assert isinstance(answer, str)
+        logging.debug("-> " + answer)
         return answer
 
-
-"""
-class StoryTree:
-    class StoryNode:
-        def __init__(self, participant_id: int, delta_story: str) -> None:
-            self._participant_id: Final = participant_id
-            self._delta_story = delta_story
-            self.children: list['StoryTree.StoryNode'] = []
-
-    def __init__(self, starting_participant: int, starting_story: StoryLine) -> None:
-        self._root: Final = StoryTree.StoryNode(starting_participant, starting_story)
-"""
 
 class StoryState(NamedTuple):
     participant: Participant
     delta_story: str
-    options: list[str]        
+    options: list[str]
 
 class StoryCreator:
     @dataclass
@@ -173,7 +164,7 @@ class StoryCreator:
             if chosen_option:
                 text += f"""
                     \n
-                    {self._get_node_participant(story_node)} eligió:\n 
+                    {self._get_node_participant(story_node)} eligió:\n
                     <{chosen_option}>
                 """
             story_line.append(text)
@@ -192,6 +183,7 @@ class StoryCreator:
 
     def choose(self, option: int) -> None:
         next_participant_id = self._next_participant(self._story[-1].participant_id)
+        self._story[-1].chosen_option = option
         self._append_new_delta_and_options(next_participant_id)
 
     def pop_option(self) -> None:
