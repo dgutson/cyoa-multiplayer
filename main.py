@@ -4,6 +4,7 @@ import logging
 import os
 import random
 import re
+from string import Template
 import sys
 from typing import Final, Any, NamedTuple
 
@@ -21,6 +22,7 @@ class Config:
     plot: str = ''
     max_depth: int = 0
     max_options: int = 2
+    lang: str = ''
 
     @property
     def initial_participant(self) -> Participant:
@@ -99,6 +101,21 @@ def split_on_blank_lines(text: str) -> list[str]:
     # Strip leading/trailing whitespace from each section
     return [section.strip() for section in sections if section.strip()]
 
+class Templates:
+    def __init__(self, lang: str) -> None:
+        filepath = os.path.join("lang", f"{lang}.yml")
+        with open(filepath, 'r', encoding='utf-8') as file:
+            template_strings = yaml.safe_load(file)
+        self._templates: Final = {k: Template(v) for k, v in template_strings.items()}
+        self._values: dict[str, str] = {}
+
+    def set_key(self, key: str, value: str) -> None:
+        self._values[key] = value
+
+    def get_str(self, key: str) -> str:
+        return self._templates.get(key, Template('')).substitute(self._values)
+
+
 class StoryState(NamedTuple):
     participant: Participant
     delta_story: str
@@ -134,11 +151,14 @@ class StoryCreator:
         config.plot = data['plot']
         config.max_depth = data.get('max-depth', 10)
         config.max_options = data.get('max-options', 2)
+        config.lang = data.get('language', 'es_AR')
         return config
 
     def __init__(self) -> None:
         self._config: Final = self._load_config()
         self._llm_manager: Final = LlmStoryManager()
+        self._templates = Templates(self._config.lang)
+        self._fill_templates()
         init_story_node = StoryCreator.StoryNode(
             participant_id=self._config.initial_participant_id,
             delta_story=self._create_starting_delta(),
@@ -148,33 +168,26 @@ class StoryCreator:
         self._story: list[StoryCreator.StoryNode] = [init_story_node]
         self._append_new_delta_and_options(self._config.initial_participant_id)
 
+    def _fill_templates(self) -> None:
+        t = self._templates
+        config = self._config
+        t.set_key('players', ",".join(config.participants))
+        t.set_key('max_options', str(config.max_options))
+        t.set_key('plot', config.plot)
+
+
     def _create_starting_delta(self) -> str:
-        preamble = f"""
-            Vamos a crear un relato estilo 'Elige Tu Propia Aventura',
-            pero multijugador por turnos, es decir, cada elección la hace
-            cada jugador por turnos.
-            Los jugadores son: {",".join(self._config.participants)}.
-            La cantidad de opciones por turno es {self._config.max_options}.
-            El argumento es este:
-            {self._config.plot}
-        """
-        return preamble
+        return self._templates.get_str('starting-delta')
 
     def _append_new_delta_and_options(self, participant_id: int) -> None:
         participant = self._config.participant_name(participant_id)
-        prompt = f"""
-            Ahora elige {participant}.
-            Describe la proxima situación (como un incremento a la historia hasta el momento),
-            antes de enumerar las opciones.
-            """
+        self._templates.set_key('participant', participant)
+        prompt = self._templates.get_str('delta')
         story_line = self._get_story_line()
         delta_story = self._llm_manager.prompt(story_line, prompt)
         assert delta_story is not None
         story_line.append(delta_story)
-        prompt = f"""
-            Ahora enumera las opciones que tiene {participant}.
-            Escribe cada opción en un párrafo, y sepáralos por una línea en blanco. 
-        """
+        prompt = self._templates.get_str('options')
         options_str = self._llm_manager.prompt(story_line, prompt)
         assert options_str is not None
         options = split_on_blank_lines(options_str)
@@ -197,11 +210,9 @@ class StoryCreator:
             text = story_node.delta_story
             chosen_option = story_node.chosen_option_str()
             if chosen_option:
-                text += f"""
-                    \n
-                    {self._get_node_participant(story_node)} eligió:\n
-                    <{chosen_option}>
-                """
+                self._templates.set_key('participant', self._get_node_participant(story_node))
+                self._templates.set_key('chosen_option', chosen_option)
+                text += self._templates.get_str('chose')
             story_line.append(text)
         return story_line
 

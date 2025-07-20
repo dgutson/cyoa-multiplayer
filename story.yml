@@ -6,6 +6,7 @@ participants:
 initial-participant: random
 max-depth: 45
 max-options: 3
+language: es_AR
 plot: |
   En unas vacaciones, los chicos van a explorar al bosque.
   En el bosque encuentran una cueva oculta detrás de una piedra.

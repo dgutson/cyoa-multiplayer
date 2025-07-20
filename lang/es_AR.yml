@@ -1,0 +1,17 @@
+starting-delta: |
+  Vamos a crear un relato estilo 'Elige Tu Propia Aventura',
+  pero multijugador por turnos, es decir, cada elección la hace
+  cada jugador por turnos.
+  Los jugadores son: ${players}.
+  La cantidad de opciones por turno es ${max_options}.
+  El argumento es este:
+  ${plot}
+delta: |
+  Ahora elige ${participant}.
+  Describe la proxima situación (como un incremento a la historia hasta el momento),
+  antes de enumerar las opciones.
+options: |
+  Ahora enumera las opciones que tiene ${participant}.
+  Escribe cada opción en un párrafo, y sepáralos por una línea en blanco. 
+chose: |
+  ${participant} eligió: ${chosen_option}.
