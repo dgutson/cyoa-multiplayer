@@ -1,9 +1,9 @@
 #from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-import json
 import logging
 import os
 import random
+import re
 import sys
 from typing import Final, Any, NamedTuple
 
@@ -51,13 +51,14 @@ class LlmStoryManager:
     def _story_line_to_chat(story_line: StoryLine) -> ChatMessages:
         chat_messages = [{"role": "system", "content": "/no_think"}]
         for story_item in story_line:
-            logging.debug(story_item)
+            logging.debug(f"STORY ITEM: {story_item}")
             LlmStoryManager._add_chat_message(chat_messages, story_item)
 
         return chat_messages
 
     def prompt(self, story_so_far: StoryLine, question: str) -> str | None:
         chat_messages = self._story_line_to_chat(story_so_far)
+        logging.debug(f"QUESTION: {question}.")
         chat_messages = self._add_chat_message(chat_messages, question)
 
         completion = self._client.chat.completions.create( # pyright: ignore
@@ -67,9 +68,36 @@ class LlmStoryManager:
 
         answer = completion.choices[0].message.content
         assert isinstance(answer, str)
-        logging.debug("-> " + answer)
+        logging.debug("RESPONSE -> " + answer)
         return answer
 
+_JSON_FENCE = re.compile(r"```json\s*(.*?)```", re.DOTALL | re.IGNORECASE)
+def json_cleanup(input_str: str) -> str:
+    matches = _JSON_FENCE.findall(input_str)
+    markup_count = len(matches)
+
+    if markup_count == 0:
+        json_str = input_str
+    elif markup_count == 1:
+        json_str = matches[0]
+        logging.debug(f"json-sanitized: {json_str}.")
+    else:
+        raise ValueError(f"Expected exactly one fenced JSON block, found {len(matches)}")
+
+    json_str = json_str.strip()
+
+    if not json_str.endswith('}'):
+        json_str += '}'
+
+    json_str = json_str.replace("]]", "]")
+
+    return json_str
+
+def split_on_blank_lines(text: str) -> list[str]:
+    # Split on two or more line breaks with optional spaces/tabs, ignore multiples
+    sections = re.split(r'\n\s*\n+', text.strip())
+    # Strip leading/trailing whitespace from each section
+    return [section.strip() for section in sections if section.strip()]
 
 class StoryState(NamedTuple):
     participant: Participant
@@ -84,8 +112,8 @@ class StoryCreator:
         options: list[str]
         chosen_option: int | None # None means that there was no option chosen yet
 
-        def chose_option_str(self) -> str | None:
-            if self.chosen_option:
+        def chosen_option_str(self) -> str | None:
+            if self.chosen_option is not None:
                 return self.options[self.chosen_option]
             return None
 
@@ -103,6 +131,7 @@ class StoryCreator:
         else:
             config.initial_participant_id = config.participants.index(init_participant_name)
 
+        config.plot = data['plot']
         config.max_depth = data.get('max-depth', 10)
         config.max_options = data.get('max-options', 2)
         return config
@@ -128,26 +157,32 @@ class StoryCreator:
             La cantidad de opciones por turno es {self._config.max_options}.
             El argumento es este:
             {self._config.plot}
-
-            El primero en elegir es {self._config.initial_participant}.
         """
         return preamble
 
     def _append_new_delta_and_options(self, participant_id: int) -> None:
-        prompt = """
+        participant = self._config.participant_name(participant_id)
+        prompt = f"""
+            Ahora elige {participant}.
             Describe la proxima situación (como un incremento a la historia hasta el momento),
-            y las opciones. Dime el resultado en
-            formato json, con este esquema: { "situation": "xxx", "options": ["opt1", "opt2"]}.
-            En caso de que la historia haya terminado, options tiene que ser una lista vacia.
-        """
+            antes de enumerar las opciones.
+            """
         story_line = self._get_story_line()
-        json_str = self._llm_manager.prompt(story_line, prompt)
-        if json_str:
-            answer = json.loads(json_str)
+        delta_story = self._llm_manager.prompt(story_line, prompt)
+        assert delta_story is not None
+        story_line.append(delta_story)
+        prompt = f"""
+            Ahora enumera las opciones que tiene {participant}.
+            Escribe cada opción en un párrafo, y sepáralos por una línea en blanco. 
+        """
+        options_str = self._llm_manager.prompt(story_line, prompt)
+        assert options_str is not None
+        options = split_on_blank_lines(options_str)
 
+        if options:
             new_node = StoryCreator.StoryNode(
-                delta_story=answer['situation'],
-                options=answer['options'],
+                delta_story=delta_story,
+                options=options,
                 participant_id=participant_id,
                 chosen_option=None
             )
@@ -160,7 +195,7 @@ class StoryCreator:
         story_line: StoryLine = []
         for story_node in self._story:
             text = story_node.delta_story
-            chosen_option = story_node.chose_option_str()
+            chosen_option = story_node.chosen_option_str()
             if chosen_option:
                 text += f"""
                     \n
@@ -184,6 +219,7 @@ class StoryCreator:
     def choose(self, option: int) -> None:
         next_participant_id = self._next_participant(self._story[-1].participant_id)
         self._story[-1].chosen_option = option
+        logging.debug(f"chose option: {self._story[-1].chosen_option}, string: {self._story[-1].chosen_option_str()}")
         self._append_new_delta_and_options(next_participant_id)
 
     def pop_option(self) -> None:
@@ -204,6 +240,7 @@ def play(sm: StoryCreator, level: int) -> None:
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.DEBUG)
     sm = StoryCreator()
     play(sm, 0)
 
