@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 import random
 from typing import Final, Any
@@ -13,7 +13,7 @@ ChatMessages = list[dict[str, Any]]
 
 @dataclass
 class Config:
-    participants: list[Participant] = []
+    participants: list[Participant] = field(default_factory=list)
     initial_participant_id: int = 0
     plot: str = ''
     max_depth: int = 0
@@ -122,3 +122,9 @@ class StoryCreator:
 
     def begin(self) -> None:
         pass
+
+
+def main() -> None:
+    print("hola")
+
+main()
