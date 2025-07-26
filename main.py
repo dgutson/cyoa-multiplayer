@@ -20,8 +20,9 @@ Response = NewType('Response', str)
 
 @dataclass
 class Config:
-    participants: list[Participant] = field(
-        default_factory=list)  # pyright: ignore
+    participants: list[Participant] = field(  # pyright: ignore
+        default_factory=list)
+    participants_data: str = ''
     initial_participant_id: int = 0
     plot: str = ''
     max_depth: int = 0
@@ -161,6 +162,7 @@ class StoryCreator:
             data = yaml.safe_load(file)
 
         config.participants = data['participants']
+        config.participants_data = data.get('participants-data', '')
         init_participant_name = data.get('initial-participant', 'random')
         if init_participant_name == 'random':
             config.initial_participant_id = random.randrange(
@@ -188,7 +190,10 @@ class StoryCreator:
     def _fill_templates(self) -> None:
         t = self._templates
         config = self._config
-        t.set_key('players', ",".join(config.participants))
+        players_str = ",".join(config.participants)
+        if config.participants_data:
+            players_str += '.' + config.participants_data
+        t.set_key('players', players_str)
         t.set_key('max_options', str(config.max_options))
         t.set_key('plot', config.plot)
 
