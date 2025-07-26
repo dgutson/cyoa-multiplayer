@@ -2,4 +2,4 @@
 extend-select = ["RUF008"]
 
 [tool.pylint."MESSAGES CONTROL"]
-disable = ["C0114", "C0115", "C0116", "E0401", "W1201", "W1203"]
+disable = ["C0114", "C0115", "C0116", "E0401", "W1201", "W1203", "W0511"]
