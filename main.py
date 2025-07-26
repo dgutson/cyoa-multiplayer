@@ -6,14 +6,22 @@ import random
 import re
 from string import Template
 import sys
-from typing import Final, Any, NamedTuple
+from typing import Final, Any, NamedTuple, NewType
 
 from huggingface_hub import InferenceClient
 import yaml
 
 StoryLine = list[str]
 Participant = str
-ChatMessages = list[dict[str, Any]]
+HFChatMessage = dict[str, Any]
+HFChatMessages = list[HFChatMessage] # structure required by the HFace API
+Prompt = NewType('Prompt', str)
+Response = NewType('Response', str)
+
+# class PromptResponse(NamedTuple):
+#     prompt: Prompt
+#     response: Response
+
 
 @dataclass
 class Config:
@@ -32,7 +40,24 @@ class Config:
         return self.participants[participant_id]
 
 class LlmStoryManager:
-    MODEL_ID = "HuggingFaceTB/SmolLM3-3B"
+    # class ChatMessage(NamedTuple):
+    #     role: str
+    #     content: str
+
+    #     def as_hf_chat_message(self) -> HFChatMessage:
+    #         return { 'role': self.role, 'content': self.content}
+
+    # class ChatFragment:
+    #     def __init__(self) -> None:
+    #         self._fragment: list[LlmStoryManager.ChatMessage] = []
+
+    #     def as_hf_chat_messages(self) -> HFChatMessages:
+    #         return [cm.as_hf_chat_message() for cm in self._fragment]
+
+    #     def append_chat_message(self, cm: 'LlmStoryManager.ChatMessage') -> None:
+    #         self._fragment.append(cm)
+
+    MODEL_ID = "HuggingFaceTB/SmolLM3-3B"  # TODO: get this from the config
 
     def __init__(self) -> None:
         api_key = os.environ.get("HF_TOKEN")
@@ -40,38 +65,48 @@ class LlmStoryManager:
             print("HF_TOKEN env var not set.")
             sys.exit(1)
 
-        self._client = InferenceClient(
+        self._client: Final = InferenceClient(
             provider="hf-inference",
             api_key=api_key)
 
-    @staticmethod
-    def _add_chat_message(chat_messages: ChatMessages, message: str) -> ChatMessages:
-        chat_messages.append({"role": "user", "content": message})
-        return chat_messages
+        self._chat_messages: HFChatMessages = []
 
-    @staticmethod
-    def _story_line_to_chat(story_line: StoryLine) -> ChatMessages:
-        chat_messages = [{"role": "system", "content": "/no_think"}]
-        for story_item in story_line:
-            logging.debug(f"STORY ITEM: {story_item}")
-            LlmStoryManager._add_chat_message(chat_messages, story_item)
+    # @staticmethod
+    # def _add_chat_message(chat_messages: ChatMessages, message: str) -> ChatMessages:
+    #     chat_messages.append({"role": "user", "content": message})
+    #     return chat_messages
 
-        return chat_messages
+    def reset_exchanges(self) -> None:
+        self._chat_messages = [{"role": "system", "content": "/no_think"}]
 
-    def prompt(self, story_so_far: StoryLine, question: str) -> str | None:
-        chat_messages = self._story_line_to_chat(story_so_far)
-        logging.debug(f"QUESTION: {question}.")
-        chat_messages = self._add_chat_message(chat_messages, question)
+    def add_exchange(self, prompt: Prompt, response: Response) -> None:
+        self._chat_messages.append({"role": "user", "content": str(prompt)})
+        self._chat_messages.append({"role": "assistant", "content": str(response)})
 
+    # @staticmethod
+    # def _story_line_to_chat(story_line: StoryLine) -> ChatMessages:
+    #     chat_messages = [{"role": "system", "content": "/no_think"}]
+    #     for story_item in story_line:
+    #         logging.debug(f"STORY ITEM: {story_item}")
+    #         LlmStoryManager._add_chat_message(chat_messages, story_item)
+
+
+    #     return chat_messages
+
+    def prompt(self, question: Prompt) -> Response | None:
+        logging.debug(f"QUESTION: {str(question)}.")
+        self._chat_messages.append({"role": "user", "content": str(question)})
+        print(f"History: {self._chat_messages}")
         completion = self._client.chat.completions.create( # pyright: ignore
             model = self.MODEL_ID,
-            messages = chat_messages
+            messages = self._chat_messages
         )
-
+        print("xxxxxxxxxxxxxxxxxx")
         answer = completion.choices[0].message.content
         assert isinstance(answer, str)
         logging.debug("RESPONSE -> " + answer)
-        return answer
+        self.add_exchange(question, Response(answer))
+        return Response(answer)
 
 _JSON_FENCE = re.compile(r"```json\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 def json_cleanup(input_str: str) -> str:
@@ -125,9 +160,15 @@ class StoryCreator:
     @dataclass
     class StoryNode:
         participant_id: int
-        delta_story: str
+        delta_prompt: Prompt
+        delta_story: Response
+        options_prompt: Prompt
         options: list[str]
         chosen_option: int | None # None means that there was no option chosen yet
+
+        @property
+        def options_response(self) -> Response:
+            return Response("\n\n".join(self.options))
 
         def chosen_option_str(self) -> str | None:
             if self.chosen_option is not None:
@@ -159,14 +200,16 @@ class StoryCreator:
         self._llm_manager: Final = LlmStoryManager()
         self._templates = Templates(self._config.lang)
         self._fill_templates()
-        init_story_node = StoryCreator.StoryNode(
-            participant_id=self._config.initial_participant_id,
-            delta_story=self._create_starting_delta(),
-            options=[],
-            chosen_option=None
-        )
-        self._story: list[StoryCreator.StoryNode] = [init_story_node]
-        self._append_new_delta_and_options(self._config.initial_participant_id)
+
+        # init_story_node = StoryCreator.StoryNode(
+        #     participant_id=self._config.initial_participant_id,
+        #     delta_prompt=self._create_starting_delta(),
+        #     options_prompt=
+        #     options=[],
+        #     chosen_option=None
+        # )
+        self._story: list[StoryCreator.StoryNode] = []
+        self._append_new_delta_and_options(self._config.initial_participant_id, 'starting-delta')
 
     def _fill_templates(self) -> None:
         t = self._templates
@@ -176,27 +219,53 @@ class StoryCreator:
         t.set_key('plot', config.plot)
 
 
-    def _create_starting_delta(self) -> str:
-        return self._templates.get_str('starting-delta')
+    # def _create_starting_delta(self) -> str:
+    #     return self._templates.get_str('starting-delta')
 
-    def _append_new_delta_and_options(self, participant_id: int) -> None:
+    def _prepare_story_line(self) -> None:
+        self._llm_manager.reset_exchanges()
+        for story_node in self._story:
+            self._llm_manager.add_exchange(story_node.delta_prompt, story_node.delta_story)
+            self._llm_manager.add_exchange(story_node.options_prompt, story_node.options_response)
+
+
+    def _get_last_option_chosen(self) -> Prompt:
+
+        if self._story:
+            story_node = self._story[-1]
+            last_chosen_str = story_node.chosen_option_str()
+            if last_chosen_str:
+                self._templates.set_key('participant', self._config.participant_name(story_node.participant_id))
+                self._templates.set_key('chosen_option', last_chosen_str)
+                return Prompt(self._templates.get_str('chose'))
+
+        return Prompt('')
+
+    def _append_new_delta_and_options(self, participant_id: int, delta_key: str = 'delta') -> None:
+        last_chosen_option = self._get_last_option_chosen()
+        self._prepare_story_line()
+
         participant = self._config.participant_name(participant_id)
         self._templates.set_key('participant', participant)
-        prompt = self._templates.get_str('delta')
-        story_line = self._get_story_line()
-        delta_story = self._llm_manager.prompt(story_line, prompt)
+
+        # add delta-key
+        delta_prompt = Prompt(last_chosen_option + self._templates.get_str(delta_key))
+        delta_story = self._llm_manager.prompt(delta_prompt)
         assert delta_story is not None
-        story_line.append(delta_story)
-        prompt = self._templates.get_str('options')
-        options_str = self._llm_manager.prompt(story_line, prompt)
-        assert options_str is not None
-        options = split_on_blank_lines(options_str)
+
+        # add options
+        options_prompt = Prompt(self._templates.get_str('options'))
+        options_response = self._llm_manager.prompt(options_prompt)
+        assert options_response is not None
+        options = split_on_blank_lines(str(options_response))
 
         if options:
             new_node = StoryCreator.StoryNode(
-                delta_story=delta_story,
-                options=options,
                 participant_id=participant_id,
+                delta_prompt=delta_prompt,
+                delta_story=delta_story,
+                options_prompt=options_prompt,
+                options=options,
                 chosen_option=None
             )
             self._story.append(new_node)
@@ -204,17 +273,17 @@ class StoryCreator:
     def _get_node_participant(self, node: 'StoryCreator.StoryNode') -> str:
         return self._config.participant_name(node.participant_id)
 
-    def _get_story_line(self) -> StoryLine:
-        story_line: StoryLine = []
-        for story_node in self._story:
-            text = story_node.delta_story
-            chosen_option = story_node.chosen_option_str()
-            if chosen_option:
-                self._templates.set_key('participant', self._get_node_participant(story_node))
-                self._templates.set_key('chosen_option', chosen_option)
-                text += self._templates.get_str('chose')
-            story_line.append(text)
-        return story_line
+    # def _get_story_line(self) -> StoryLine:
+    #     story_line: StoryLine = []
+    #     for story_node in self._story:
+    #         text = story_node.delta_story
+    #         chosen_option = story_node.chosen_option_str()
+    #         if chosen_option:
+    #             self._templates.set_key('participant', self._get_node_participant(story_node))
+    #             self._templates.set_key('chosen_option', chosen_option)
+    #             text += self._templates.get_str('chose')
+    #         story_line.append(text)
+    #     return story_line
 
     def get_current(self) -> StoryState:
         current_node = self._story[-1]
@@ -248,11 +317,30 @@ def play(sm: StoryCreator, level: int) -> None:
         play(sm, level + 1)
         sm.pop_option()
 
-
+def play_console(sm: StoryCreator) -> None:
+    participant, delta_context, options = sm.get_current()
+    print(f"""
+        ------------------------------
+        {delta_context}.
+        Elige {participant}.
+        Opciones:
+    """)
+    for i, opt in enumerate(options):
+        print(f"{i} - {opt}\n---")
+    selected = int(input("Tu elección?: "))
+    sm.choose(selected)
+    play_console(sm)
 
 def main() -> None:
     logging.basicConfig(level=logging.DEBUG)
+
+    # llm = LlmStoryManager()
+    # llm.reset_exchanges()
+    # paris = str(llm.prompt(Prompt('Capital of France?')))
+    # print(paris)
+    # return
     sm = StoryCreator()
-    play(sm, 0)
+    #play(sm, 0)
+    play_console(sm)
 
 main()

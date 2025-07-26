@@ -6,6 +6,9 @@ starting-delta: |
   La cantidad de opciones por turno es ${max_options}.
   El argumento es este:
   ${plot}
+
+  Inicia el participante ${participant}.
+  Relata una introducción a la historia como para que comience el juego.
 delta: |
   Ahora elige ${participant}.
   Describe la proxima situación (como un incremento a la historia hasta el momento),
@@ -14,4 +17,4 @@ options: |
   Ahora enumera las opciones que tiene ${participant}.
   Escribe cada opción en un párrafo, y sepáralos por una línea en blanco. 
 chose: |
-  ${participant} eligió: ${chosen_option}.
+  ${participant} eligió: '${chosen_option}'.
