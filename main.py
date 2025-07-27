@@ -1,3 +1,4 @@
+import argparse
 from dataclasses import dataclass, field
 import logging
 import os
@@ -38,14 +39,14 @@ class Config:
 
 
 class LlmStoryManager:
-    MODEL_ID = "HuggingFaceTB/SmolLM3-3B"  # TODO: get this from the config
 
-    def __init__(self) -> None:
+    def __init__(self, model: str) -> None:
         api_key = os.environ.get("HF_TOKEN")
         if not api_key:
             print("HF_TOKEN env var not set.")
             sys.exit(1)
 
+        self._model: Final = model
         self._client: Final = InferenceClient(provider="hf-inference",
                                               api_key=api_key)
 
@@ -66,7 +67,7 @@ class LlmStoryManager:
         self._chat_messages.append({"role": "user", "content": str(question)})
 
         completion = self._client.chat.completions.create(  # pyright: ignore
-            model=self.MODEL_ID,
+            model=self._model,
             messages=self._chat_messages)
 
         answer = completion.choices[0].message.content
@@ -74,32 +75,6 @@ class LlmStoryManager:
         logging.debug("RESPONSE -> " + answer)
         self.add_exchange(question, Response(answer))
         return Response(answer)
-
-
-_JSON_FENCE = re.compile(r"```json\s*(.*?)```", re.DOTALL | re.IGNORECASE)
-
-
-def json_cleanup(input_str: str) -> str:
-    matches = _JSON_FENCE.findall(input_str)
-    markup_count = len(matches)
-
-    if markup_count == 0:
-        json_str = input_str
-    elif markup_count == 1:
-        json_str = matches[0]
-        logging.debug(f"json-sanitized: {json_str}.")
-    else:
-        raise ValueError(
-            f"Expected exactly one fenced JSON block, found {len(matches)}")
-
-    json_str = json_str.strip()
-
-    if not json_str.endswith('}'):
-        json_str += '}'
-
-    json_str = json_str.replace("]]", "]")
-
-    return json_str
 
 
 def split_on_blank_lines(text: str) -> list[str]:
@@ -155,11 +130,16 @@ class StoryCreator:
             return None
 
     @staticmethod
-    def _load_config() -> Config:
+    def _load_config(story_file: str, participants_file: str) -> Config:
         config = Config()
 
-        with open('story.yml', 'r', encoding='utf-8') as file:
-            data = yaml.safe_load(file)
+        with open(story_file, 'r', encoding='utf-8') as file:
+            story_data = yaml.safe_load(file)
+
+        with open(participants_file, 'r', encoding='utf-8') as file:
+            participants_data = yaml.safe_load(file)
+
+        data = {**story_data, **participants_data}
 
         config.participants = data['participants']
         config.participants_data = data.get('participants-data', '')
@@ -177,9 +157,11 @@ class StoryCreator:
         config.lang = data.get('language', 'es_AR')
         return config
 
-    def __init__(self) -> None:
-        self._config: Final = self._load_config()
-        self._llm_manager: Final = LlmStoryManager()
+    def __init__(self, story_file: str, participants_file: str,
+                 model: str) -> None:
+        self._config: Final = self._load_config(
+            story_file=story_file, participants_file=participants_file)
+        self._llm_manager: Final = LlmStoryManager(model)
         self._templates = Templates(self._config.lang)
         self._fill_templates()
 
@@ -310,9 +292,39 @@ def play_console(sm: StoryCreator) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Choose Your Own Story multiplayer.")
+
+    parser.add_argument(
+        '-s',
+        '--story',
+        type=str,
+        default='story.yml',
+        help='The filename of the story yaml file (default: story.yml)')
+
+    parser.add_argument(
+        '-p',
+        '--participants',
+        type=str,
+        default='participants.yml',
+        help=
+        'The filename of the participants yaml file (default: participants.yml)'
+    )
+
+    parser.add_argument(
+        '-m',
+        '--model',
+        type=str,
+        default='HuggingFaceTB/SmolLM3-3B',
+        help='The AI model to use (default: HuggingFaceTB/SmolLM3-3B)')
+
+    args = parser.parse_args()
+
     logging.basicConfig(level=logging.DEBUG)
 
-    sm = StoryCreator()
+    sm = StoryCreator(story_file=args.story,
+                      participants_file=args.participants,
+                      model=args.model)
 
     play_console(sm)
 

@@ -1,12 +1,4 @@
 ---
-participants:
-  - Gali
-  - Zeus
-  - Caleb
-participants-data: |
-  Gali, Zeus y Caleb son tres hermanos. Gali es el mayor, Zeus el del medio,
-  y Caleb el menor.
-initial-participant: random
 max-depth: 45
 max-options: 3
 language: es_AR
