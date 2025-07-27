@@ -293,7 +293,11 @@ def play_console(sm: StoryCreator) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Choose Your Own Story multiplayer.")
+        description="""
+Choose Your Own Story multiplayer.\n\n
+NOTE: You must define the environment variable HF_TOKEN with your Hugging Face token.
+""",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
 
     parser.add_argument(
         '-s',
