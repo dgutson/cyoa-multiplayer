@@ -1,5 +1,6 @@
 import argparse
 from dataclasses import dataclass, field
+import json
 import logging
 import os
 import random
@@ -40,7 +41,7 @@ class Config:
 
 class LlmStoryManager:
 
-    def __init__(self, model: str) -> None:
+    def __init__(self, model: str, debug_mode: bool = False) -> None:
         api_key = os.environ.get("HF_TOKEN")
         if not api_key:
             print("HF_TOKEN env var not set.")
@@ -51,20 +52,36 @@ class LlmStoryManager:
                                               api_key=api_key)
 
         self._chat_messages: HFChatMessages = []
+        self._prompts = 0
+        self._debug_mode: Final = debug_mode
 
     def reset_exchanges(self) -> None:
         self._chat_messages = [{"role": "system", "content": "/no_think"}]
 
-    def add_exchange(self, prompt: Prompt, response: Response) -> None:
+    def _add_prompt(self, prompt: Prompt) -> None:
         self._chat_messages.append({"role": "user", "content": str(prompt)})
+
+    def _add_response(self, response: Response) -> None:
         self._chat_messages.append({
             "role": "assistant",
             "content": str(response)
         })
 
+    def add_exchange(self, prompt: Prompt, response: Response) -> None:
+        self._add_prompt(prompt)
+        self._add_response(response)
+
+    def _log_messages(self) -> None:
+        if not self._debug_mode:
+            return
+        with open(f"msg{self._prompts}.json", 'w', encoding='utf-8') as f:
+            json.dump(self._chat_messages, f, indent=2)
+
     def prompt(self, question: Prompt) -> Response | None:
+        self._prompts += 1
         logging.debug(f"QUESTION: {str(question)}.")
-        self._chat_messages.append({"role": "user", "content": str(question)})
+        self._add_prompt(question)
+        logging.debug(f"Sending {len(self._chat_messages)} message.")
 
         completion = self._client.chat.completions.create(  # pyright: ignore
             model=self._model,
@@ -73,8 +90,10 @@ class LlmStoryManager:
         answer = completion.choices[0].message.content
         assert isinstance(answer, str)
         logging.debug("RESPONSE -> " + answer)
-        self.add_exchange(question, Response(answer))
-        return Response(answer)
+        response = Response(answer)
+        self._add_response(response)
+        self._log_messages()
+        return response
 
 
 def split_on_blank_lines(text: str) -> list[str]:
@@ -157,11 +176,12 @@ class StoryCreator:
         config.lang = data.get('language', 'es_AR')
         return config
 
-    def __init__(self, story_file: str, participants_file: str,
-                 model: str) -> None:
+    def __init__(self, story_file: str, participants_file: str, model: str,
+                 debug_mode: bool) -> None:
         self._config: Final = self._load_config(
             story_file=story_file, participants_file=participants_file)
-        self._llm_manager: Final = LlmStoryManager(model)
+        self._llm_manager: Final = LlmStoryManager(model,
+                                                   debug_mode=debug_mode)
         self._templates = Templates(self._config.lang)
         self._fill_templates()
 
@@ -267,6 +287,28 @@ def play(sm: StoryCreator, level: int) -> None:
         sm.pop_option()
 
 
+def read_int(prompt: str) -> int | None:
+    try:
+        return int(input(prompt))
+    except ValueError:
+        return None
+    except KeyboardInterrupt:
+        sys.exit(0)
+
+
+def input_option(max_opt: int) -> int:
+    prompt = f"Tu elección? (0-{max_opt-1}): "
+    while True:
+        selected = read_int(prompt)
+        if selected:
+            if 0 <= selected < max_opt:
+                return selected
+
+            print("Elección fuera de rango.")
+        else:
+            print("Elección invalida.")
+
+
 def play_console(sm: StoryCreator) -> None:
     participant, delta_context, options = sm.get_current()
     print(f"""
@@ -278,15 +320,7 @@ def play_console(sm: StoryCreator) -> None:
     for i, opt in enumerate(options):
         print(f"{i} - {opt}\n---")
 
-    selected: None | int = None
-    while selected is None:
-        try:
-            selected = int(input("Tu elección?: "))
-            sm.choose(selected)
-        except ValueError:
-            print("Elección equiocada.")
-        except KeyboardInterrupt:
-            sys.exit(0)
+    sm.choose(input_option(len(options)))
 
     play_console(sm)
 
@@ -322,13 +356,19 @@ NOTE: You must define the environment variable HF_TOKEN with your Hugging Face t
         default='HuggingFaceTB/SmolLM3-3B',
         help='The AI model to use (default: HuggingFaceTB/SmolLM3-3B)')
 
+    parser.add_argument('--debug',
+                        action='store_true',
+                        default=False,
+                        help='Enable debug mode')
+
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
 
     sm = StoryCreator(story_file=args.story,
                       participants_file=args.participants,
-                      model=args.model)
+                      model=args.model,
+                      debug_mode=args.debug)
 
     play_console(sm)
 

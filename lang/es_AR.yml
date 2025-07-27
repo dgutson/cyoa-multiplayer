@@ -14,7 +14,9 @@ delta: |
   Describe la proxima situación (como un incremento a la historia hasta el momento),
   antes de enumerar las opciones.
 options: |
-  Ahora enumera las opciones que tiene ${participant}.
-  Escribe cada opción en un párrafo, y sepáralos por una línea en blanco. 
+  Enumera únicamente las opciones que tiene ${participant}.
+  Escribe cada opción en un párrafo, y sepáralos por una línea en blanco,
+  sin texto ni antes ni después así lo puedo parsear en python y poner en una lista.
+  Sé estricto en este formato: sólo los párrafos correspondientes a las opciones.
 chose: |
   ${participant} eligió: '${chosen_option}'.

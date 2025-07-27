@@ -17,3 +17,4 @@ A multiplayer interactive version of the Choose Your Own Adventure using LLMs.
   - [x] ~~Players context (pronouns, descriptions, relationships)~~
   - [ ] Single-player mode
   - [x] ~~Add ToDo checklist to the README file~~
+  - [ ] Ability to go back
