@@ -8,11 +8,12 @@ A multiplayer interactive version of the Choose Your Own Adventure using LLMs.
   - [x] ~~Multi-role chat history~~
   - [x] ~~First prompt is introductory, not delta~~
   - [ ] Use LLM to parse options
-  - [ ] Add branch depth limit
+  - [x] ~~Add branch depth limit~~
 - [ ] Features
+  - [ ] Multiple models support
   - [ ] Condense initial story-line messages
   - [x] ~~Interactive playing (console)~~
-  - [ ] Multilingual plot
+  - [x] ~~Multilingual plot~~
   - [x] ~~Split plot from players/config~~
   - [x] ~~Players context (pronouns, descriptions, relationships)~~
   - [ ] Single-player mode

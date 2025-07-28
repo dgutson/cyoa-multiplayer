@@ -1,5 +1,6 @@
 import argparse
 from dataclasses import dataclass, field
+from enum import Enum, auto
 import json
 import logging
 import os
@@ -75,7 +76,7 @@ class LlmStoryManager:
         if not self._debug_mode:
             return
         with open(f"msg{self._prompts}.json", 'w', encoding='utf-8') as f:
-            json.dump(self._chat_messages, f, indent=2)
+            json.dump(self._chat_messages, f, indent=2, ensure_ascii=False)
 
     def prompt(self, question: Prompt) -> Response | None:
         self._prompts += 1
@@ -128,7 +129,13 @@ class StoryState(NamedTuple):
     options: list[str]
 
 
+class StoryRunning(Enum):
+    STORY_NOT_FINISHED = auto()
+    STORY_FINISHED = auto()
+
+
 class StoryCreator:
+    END_STORY_MARKER = 'XXX'
 
     @dataclass
     class StoryNode:
@@ -221,9 +228,13 @@ class StoryCreator:
 
         return Prompt('')
 
-    def _append_new_delta_and_options(self,
-                                      participant_id: int,
-                                      delta_key: str = 'delta') -> None:
+    def _iterations_left(self) -> int:
+        return self._config.max_depth - len(self._story)
+
+    def _append_new_delta_and_options(
+            self,
+            participant_id: int,
+            delta_key: str = 'delta') -> StoryRunning:
         last_chosen_option = self._get_last_option_chosen()
         self._prepare_story_line()
 
@@ -231,10 +242,15 @@ class StoryCreator:
         self._templates.set_key('participant', participant)
 
         # add delta-key
+        self._templates.set_key('iterations_left',
+                                str(self._iterations_left()))
         delta_prompt = Prompt(last_chosen_option +
                               self._templates.get_str(delta_key))
         delta_story = self._llm_manager.prompt(delta_prompt)
         assert delta_story is not None
+
+        if StoryCreator.END_STORY_MARKER in str(delta_story):
+            return StoryRunning.STORY_FINISHED
 
         # add options
         options_prompt = Prompt(self._templates.get_str('options'))
@@ -251,6 +267,8 @@ class StoryCreator:
                                               chosen_option=None)
             self._story.append(new_node)
 
+        return StoryRunning.STORY_NOT_FINISHED
+
     def _get_node_participant(self, node: 'StoryCreator.StoryNode') -> str:
         return self._config.participant_name(node.participant_id)
 
@@ -263,12 +281,12 @@ class StoryCreator:
     def _next_participant(self, participant_id: int) -> int:
         return (participant_id + 1) % len(self._config.participants)
 
-    def choose(self, option: int) -> None:
+    def choose(self, option: int) -> StoryRunning:
         next_participant_id = self._next_participant(
             self._story[-1].participant_id)
         self._story[-1].chosen_option = option
 
-        self._append_new_delta_and_options(next_participant_id)
+        return self._append_new_delta_and_options(next_participant_id)
 
     def pop_option(self) -> None:
         self._story.pop()
@@ -300,7 +318,7 @@ def input_option(max_opt: int) -> int:
     prompt = f"Tu elección? (0-{max_opt-1}): "
     while True:
         selected = read_int(prompt)
-        if selected:
+        if selected is not None:
             if 0 <= selected < max_opt:
                 return selected
 
@@ -320,9 +338,10 @@ def play_console(sm: StoryCreator) -> None:
     for i, opt in enumerate(options):
         print(f"{i} - {opt}\n---")
 
-    sm.choose(input_option(len(options)))
+    story_running = sm.choose(input_option(len(options)))
 
-    play_console(sm)
+    if story_running == StoryRunning.STORY_NOT_FINISHED:
+        play_console(sm)
 
 
 def main() -> None:

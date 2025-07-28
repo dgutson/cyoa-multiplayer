@@ -10,9 +10,11 @@ starting-delta: |
   Inicia el participante ${participant}.
   Relata una introducción a la historia como para que comience el juego.
 delta: |
-  Ahora elige ${participant}.
-  Describe la proxima situación (como un incremento a la historia hasta el momento),
+  Ahora le toca elegir a ${participant}:
+  describe la nueva situación (como un incremento a la historia hasta el momento),
   antes de enumerar las opciones.
+  Considera que la historia debe terminar en ${iterations_left} rondas de decisiones.
+  Si la historia ya llegó a su fin, agrega la marca "XXX" a tu respuesta.
 options: |
   Enumera únicamente las opciones que tiene ${participant}.
   Escribe cada opción en un párrafo, y sepáralos por una línea en blanco,
